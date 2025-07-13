@@ -86,7 +86,7 @@ chmod +x launch.sh
 
 ## ✒️ Feito por
 
-<img align="left" height="94px" width="94px" alt="Foto de perfil" src="./profile_git.jpeg">
+<img align="left" height="94px" width="94px" alt="Foto de perfil" src="./profile_git.jpg">
 
 **João 'Jvmntr' Monteiro**  
 Desenvolvedor Fullstack  
