@@ -1,5 +1,3 @@
-#!/bin/bash
-
 GREEN='\033[0;32m'
 PINK='\033[1;35m'
 CYAN='\033[0;36m'
@@ -11,16 +9,204 @@ print_header() {
     echo -e "${CYAN}=======================================================${NC}"
 }
 
-if [ -z "$1" ]; then
+spinner() {
+    local pid=$1
+    local msg=$2
+    local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    local i=0
+    while kill -0 $pid 2>/dev/null
+    do
+        i=$(( (i+1) % ${#spin} ))
+        printf "\r${CYAN}%c${NC} ${msg}" "${spin:$i:1}"
+        sleep 0.1
+    done
+    printf "\r%*s\r" $((${#msg}+5)) ""
+}
+
+if [ "$1" == "component" ] || [ "$1" == "page" ]; then
+    SCAFFOLD_TYPE=$1
+    ITEM_NAME=$2
+
+    if [ -z "$ITEM_NAME" ]; then
+        echo -e "${PINK}❌ Erro: Você precisa fornecer um nome para o ${SCAFFOLD_TYPE}.${NC}"
+        echo "Uso: bash launch.sh ${SCAFFOLD_TYPE} NomeDoItem"
+        exit 1
+    fi
+
+    if [ -f "tsconfig.json" ]; then
+        EXT="tsx"
+        STYLE_EXT="ts"
+    else
+        EXT="jsx"
+        STYLE_EXT="js"
+    fi
+
+    if [ "$SCAFFOLD_TYPE" == "component" ]; then
+        TARGET_DIR="src/components"
+    else
+        TARGET_DIR="src/pages"
+    fi
+    
+    if [ "$SCAFFOLD_TYPE" == "page" ] && [ ! -d "src/pages" ]; then
+        echo -e "${PINK}❌ Erro: O comando 'page' só está disponível em projetos com o padrão Router.${NC}"
+        echo -e "${PINK}Para este projeto, utilize o comando: 'launch.sh component NomeDoSeuComponente'${NC}"
+        exit 1
+    fi
+
+    if [ ! -d "$TARGET_DIR" ]; then
+        echo -e "${PINK}❌ Erro: A pasta '${TARGET_DIR}' não foi encontrada.${NC}"
+        echo "Rode este comando na raiz de um projeto existente."
+        exit 1
+    fi
+
+    ITEM_PATH="${TARGET_DIR}/${ITEM_NAME}"
+    mkdir -p "$ITEM_PATH"
+
+    if [ "$SCAFFOLD_TYPE" == "component" ]; then
+        cat <<EOF > "${ITEM_PATH}/index.${EXT}"
+import React from 'react';
+import * as S from './styles';
+
+interface ${ITEM_NAME}Props {
+  titulo?: string;
+}
+
+const ${ITEM_NAME}: React.FC<${ITEM_NAME}Props> = ({ titulo = "Componente Padrão" }) => {
+  return (
+    <S.Wrapper>
+      <S.Titulo>${ITEM_NAME}</S.Titulo>
+      <S.Descricao>Este é um componente com estilos separados.</S.Descricao>
+    </S.Wrapper>
+  );
+};
+
+export default ${ITEM_NAME};
+EOF
+
+        cat <<EOF > "${ITEM_PATH}/styles.${STYLE_EXT}"
+import styled from 'styled-components';
+
+export const Wrapper = styled.div\`
+  background-color: #f0f0f0;
+  padding: 2rem;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  text-align: center;
+\`;
+
+export const Titulo = styled.h1\`
+  color: #333;
+  font-size: 1.5rem;
+  margin: 0;
+\`;
+
+export const Descricao = styled.p\`
+  color: #666;
+  font-size: 1rem;
+\`;
+EOF
+        echo -e "${GREEN}✅ Componente '${ITEM_NAME}' criado com sucesso em '${ITEM_PATH}'${NC}"
+    else 
+        cat <<EOF > "${ITEM_PATH}/index.${EXT}"
+import React from 'react';
+import * as S from './styles';
+import Footer from '../../components/Footer';
+
+const ${ITEM_NAME} = () => {
+  return (
+    <>
+      <main>
+        <S.Container>
+          <S.Title>${ITEM_NAME}</S.Title>
+          <S.Content>Esta é a página ${ITEM_NAME}.</S.Content>
+        </S.Container>
+      </main>
+      <Footer />
+    </>
+  );
+};
+
+export default ${ITEM_NAME};
+EOF
+
+        cat <<EOF > "${ITEM_PATH}/styles.${STYLE_EXT}"
+import styled from 'styled-components';
+
+export const Container = styled.div\`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4rem 2rem;
+\`;
+
+export const Title = styled.h1\`
+  font-size: 2.5rem;
+  color: var(--accent-color);
+  margin-bottom: 2rem;
+\`;
+
+export const Content = styled.p\`
+  font-size: 1.1rem;
+  line-height: 1.8;
+  text-align: center;
+\`;
+EOF
+        echo -e "${GREEN}✅ Página '${ITEM_NAME}' criada em '${ITEM_PATH}'${NC}"
+
+        ENTRY_POINT=""
+        if [ -f "src/main.tsx" ]; then ENTRY_POINT="src/main.tsx"; fi
+        if [ -f "src/main.jsx" ]; then ENTRY_POINT="src/main.jsx"; fi
+        if [ -f "src/index.tsx" ]; then ENTRY_POINT="src/index.tsx"; fi
+        if [ -f "src/index.js" ]; then ENTRY_POINT="src/index.js"; fi
+        
+        if [ -n "$ENTRY_POINT" ]; then
+            PAGE_NAME=$ITEM_NAME
+            PAGE_PATH_LOWER=$(echo "$PAGE_NAME" | tr '[:upper:]' '[:lower:]')
+            
+            NEW_IMPORT="import ${PAGE_NAME} from './pages/${PAGE_NAME}';"
+            awk -v new_import="$NEW_IMPORT" '
+            {
+              if ($0 ~ /^import /) {
+                last_import_line = NR
+              }
+              lines[NR] = $0
+            }
+            END {
+              for (i=1; i<=NR; i++) {
+                print lines[i]
+                if (i == last_import_line) {
+                  print new_import
+                }
+              }
+            }' "$ENTRY_POINT" > "${ENTRY_POINT}.tmp" && mv "${ENTRY_POINT}.tmp" "$ENTRY_POINT"
+            
+            NEW_ROUTE="  {\n    path: '/${PAGE_PATH_LOWER}',\n    element: <${PAGE_NAME} />,\n    errorElement: <div>Página não encontrada!</div>,\n  },"
+            awk -v new_route="$NEW_ROUTE" '
+            /createBrowserRouter\(\[/ {
+              print;
+              print new_route;
+              next
+            }
+            { print }
+            ' "$ENTRY_POINT" > "${ENTRY_POINT}.tmp" && mv "${ENTRY_POINT}.tmp" "$ENTRY_POINT"
+
+            echo -e "${GREEN}✅ Rota para ${ITEM_NAME} adicionada em ${ENTRY_POINT}${NC}"
+        fi
+    fi
+    exit 0
+fi
+
+PROJECT_NAME=$1
+if [ -z "$PROJECT_NAME" ]; then
   read -p "Qual o nome do seu projeto? (ex: meu-app-incrivel) " PROJECT_NAME
-else
-  PROJECT_NAME=$1
 fi
 
 if [ -z "$PROJECT_NAME" ]; then
   echo -e "${PINK}❌ Nome do projeto não pode ser vazio.${NC}"
   exit 1
 fi
+
+PROJECT_NAME_LOWER=$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]')
 
 print_header "Escolha sua ferramenta de build"
 PS3="Sua escolha: "
@@ -93,47 +279,55 @@ echo -e "   - CHANGELOG:  ${PINK}${changelog_choice}${NC}\n"
 if [ "$LANG_CHOICE" == "ts" ]; then
     EXT="tsx"
     STYLE_EXT="ts"
-    MAIN_FILE_EXT="tsx"
 else
     EXT="jsx"
     STYLE_EXT="js"
-    MAIN_FILE_EXT="js"
 fi
+MAIN_FILE_EXT=$EXT
 
 print_header "1/8: Criando a estrutura base do projeto..."
 
 if [ "$TOOL_CHOICE" == "vite" ]; then
     if [ "$LANG_CHOICE" == "ts" ]; then
-        npm create vite@latest "$PROJECT_NAME" -- --template react-ts > /dev/null 2>&1
+        npm create vite@latest "$PROJECT_NAME_LOWER" -- --template react-ts
     else
-        npm create vite@latest "$PROJECT_NAME" -- --template react > /dev/null 2>&1
+        npm create vite@latest "$PROJECT_NAME_LOWER" -- --template react
     fi
 else
     if [ "$LANG_CHOICE" == "ts" ]; then
-        npx create-react-app "$PROJECT_NAME" --template typescript > /dev/null 2>&1
+        npx create-react-app "$PROJECT_NAME_LOWER" --template typescript
     else
-        npx create-react-app "$PROJECT_NAME" > /dev/null 2>&1
+        npx create-react-app "$PROJECT_NAME_LOWER"
     fi
 fi
 
-cd "$PROJECT_NAME"
+cd "$PROJECT_NAME_LOWER"
+
+node -e "
+  const fs = require('fs');
+  const pkgPath = './package.json';
+  const pkg = JSON.parse(fs.readFileSync(pkgPath));
+  pkg.name = '${PROJECT_NAME_LOWER}';
+  fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
+"
+echo "   - Nome do projeto atualizado em package.json."
 
 print_header "2/8: Instalando dependências..."
-npm install styled-components > /dev/null 2>&1
+npm install styled-components
 if [ "$PROJECT_PATTERN" == "router" ]; then
-    npm install react-router-dom > /dev/null 2>&1
+    npm install react-router-dom
 fi
 if [ "$LANG_CHOICE" == "ts" ]; then
-    npm install -D @types/styled-components > /dev/null 2>&1
+    npm install -D @types/styled-components
 fi
 
 if [ "$LINT_SETUP" == "yes" ]; then
     print_header "3/8: Configurando ESLint e Prettier..."
     
     if [ "$LANG_CHOICE" == "ts" ]; then
-        npm install -D eslint prettier eslint-plugin-react@latest @typescript-eslint/eslint-plugin@latest @typescript-eslint/parser@latest eslint-plugin-react-hooks eslint-plugin-jsx-a11y eslint-config-prettier eslint-plugin-prettier > /dev/null 2>&1
+        npm install -D eslint prettier eslint-plugin-react@latest @typescript-eslint/eslint-plugin@latest @typescript-eslint/parser@latest eslint-plugin-react-hooks eslint-plugin-jsx-a11y eslint-config-prettier eslint-plugin-prettier
     else
-        npm install -D eslint prettier eslint-plugin-react@latest eslint-plugin-react-hooks eslint-plugin-jsx-a11y eslint-config-prettier eslint-plugin-prettier > /dev/null 2>&1
+        npm install -D eslint prettier eslint-plugin-react@latest eslint-plugin-react-hooks eslint-plugin-jsx-a11y eslint-config-prettier eslint-plugin-prettier
     fi
     echo "   - Dependências de Linter e Formatter instaladas."
 
@@ -331,6 +525,16 @@ echo "   - Componente Footer criado."
 
 print_header "6/8: Configurando o padrão do projeto..."
 
+ENTRY_POINT="src/main.${MAIN_FILE_EXT}"
+if [ "$TOOL_CHOICE" == "cra" ]; then
+    ENTRY_POINT="src/index.${MAIN_FILE_EXT}"
+fi
+
+TS_NON_NULL_ASSERTION=""
+if [ "$LANG_CHOICE" == "ts" ]; then
+    TS_NON_NULL_ASSERTION="!"
+fi
+
 if [ "$PROJECT_PATTERN" == "router" ]; then
     rm -f src/App.${EXT}
     mkdir -p src/pages
@@ -374,6 +578,31 @@ export const Subtitle = styled.p\`
 \`;
 EOF
     echo "   - Padrão Router: Pasta 'pages' e 'HomePage' criadas."
+
+    rm -f ${ENTRY_POINT}
+    cat <<EOF > ${ENTRY_POINT}
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { createBrowserRouter, RouterProvider } from 'react-router-dom';
+import HomePage from './pages/HomePage';
+import './index.css';
+
+const router = createBrowserRouter([
+  {
+    path: '/',
+    element: <HomePage />,
+    errorElement: <div>Página não encontrada!</div>,
+  },
+]);
+
+const root = ReactDOM.createRoot(document.getElementById('root')${TS_NON_NULL_ASSERTION});
+root.render(
+  <React.StrictMode>
+    <RouterProvider router={router} />
+  </React.StrictMode>,
+);
+EOF
+    echo "   - Arquivo de entrada configurado com React Router."
 else
     cat <<EOF > src/App.${EXT}
 import React from 'react';
@@ -398,9 +627,25 @@ const App = () => {
 export default App;
 EOF
     echo "   - Padrão Landing Page: 'App.${EXT}' principal criado."
+
+    rm -f ${ENTRY_POINT}
+    cat <<EOF > ${ENTRY_POINT}
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App';
+import './index.css';
+
+const root = ReactDOM.createRoot(document.getElementById('root')${TS_NON_NULL_ASSERTION});
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+);
+EOF
+    echo "   - Arquivo de entrada configurado para renderizar o App principal."
 fi
 
-print_header "7/8: Configurando estilos globais e arquivo de entrada..."
+print_header "7/8: Configurando estilos globais..."
 
 cat <<'EOF' > src/index.css
 @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;700&family=Inter:wght@400;700&display=swap');
@@ -428,64 +673,13 @@ main { flex: 1; }
 EOF
 echo "   - Arquivo 'index.css' atualizado."
 
-ENTRY_POINT="src/main.${MAIN_FILE_EXT}"
-if [ "$TOOL_CHOICE" == "cra" ]; then
-    ENTRY_POINT="src/index.${MAIN_FILE_EXT}"
-fi
-
-TS_NON_NULL_ASSERTION=""
-if [ "$LANG_CHOICE" == "ts" ]; then
-    TS_NON_NULL_ASSERTION="!"
-fi
-
-if [ "$PROJECT_PATTERN" == "router" ]; then
-    cat <<EOF > ${ENTRY_POINT}
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import { createBrowserRouter, RouterProvider } from 'react-router-dom';
-import HomePage from './pages/HomePage';
-import './index.css';
-
-const router = createBrowserRouter([
-  {
-    path: '/',
-    element: <HomePage />,
-    errorElement: <div>Página não encontrada!</div>,
-  },
-]);
-
-const root = ReactDOM.createRoot(document.getElementById('root')${TS_NON_NULL_ASSERTION});
-root.render(
-  <React.StrictMode>
-    <RouterProvider router={router} />
-  </React.StrictMode>,
-);
-EOF
-    echo "   - Arquivo de entrada configurado com React Router."
-else
-    cat <<EOF > ${ENTRY_POINT}
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import App from './App';
-import './index.css';
-
-const root = ReactDOM.createRoot(document.getElementById('root')${TS_NON_NULL_ASSERTION});
-root.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
-EOF
-    echo "   - Arquivo de entrada configurado para renderizar o App principal."
-fi
 
 print_header "8/8: Inicializando o repositório Git..."
 
 if command -v git &> /dev/null; then
-    git init > /dev/null 2>&1
-    git add . > /dev/null 2>&1
-    git commit -m "🎉 Commit inicial: Projeto gerado com o script" > /dev/null 2>&1
-    echo "   - Repositório Git inicializado com sucesso."
+    (git init && git add . && git commit -m "🎉 Commit inicial: Projeto gerado com o script") > /dev/null 2>&1 &
+    spinner $! "Inicializando repositório Git..."
+    echo -e "${GREEN}✅ Repositório Git inicializado com sucesso.${NC}"
 else
     echo "   - ${PINK}Aviso: Git não encontrado. Pulei a inicialização do repositório.${NC}"
     echo "   - ${PINK}Você pode inicializá-lo manualmente com 'git init'.${NC}"
@@ -493,8 +687,7 @@ fi
 
 print_header "🎉 Projeto criado com sucesso! 🎉"
 echo -e "Para começar, execute os seguintes comandos:\n"
-echo -e "   ${PINK}cd ${PROJECT_NAME}${NC}"
-echo -e "   ${PINK}npm install${NC} (se o script não instalou)"
+echo -e "   ${PINK}cd ${PROJECT_NAME_LOWER}${NC}"
 START_CMD=$([ "$TOOL_CHOICE" == "vite" ] && echo "dev" || echo "start")
 echo -e "   ${PINK}npm run ${START_CMD}${NC}"
 if [ "$LINT_SETUP" == "yes" ]; then
